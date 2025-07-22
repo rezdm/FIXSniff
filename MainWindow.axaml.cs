@@ -1,5 +1,8 @@
+using System;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Controls.Primitives;
+using Avalonia.Styling;
 using FIXSniff.ViewModels;
 using FIXSniff.Models;
 
@@ -40,5 +43,35 @@ public partial class MainWindow : Window
                 viewModel.UpdateSelectedFieldDescription(selectedField.Description);
             }
         }
+    }
+
+    // Theme toggle button handler
+    private void ToggleTheme_Click(object? sender, RoutedEventArgs e)
+    {
+        var current = App.Current.RequestedThemeVariant;
+        if (current == ThemeVariant.Dark)
+        {
+            SetLightTheme();
+        }
+        else
+        {
+            SetDarkTheme();
+        }
+    }
+
+    // Methods to switch themes programmatically
+    public void SetDarkTheme()
+    {
+        App.Current.RequestedThemeVariant = ThemeVariant.Dark;
+    }
+
+    public void SetLightTheme()
+    {
+        App.Current.RequestedThemeVariant = ThemeVariant.Light;
+    }
+
+    public void SetSystemTheme()
+    {
+        App.Current.RequestedThemeVariant = ThemeVariant.Default;
     }
 }
