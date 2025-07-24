@@ -119,8 +119,26 @@ public class FixSpecificationLoader
             
             if (!string.IsNullOrEmpty(enumAttr))
             {
-                fieldSpec.Values[enumAttr] = descAttr ?? enumAttr;
+                // Clean up the description text
+                var cleanDescription = descAttr ?? enumAttr;
+                cleanDescription = cleanDescription.Replace("_", " ").Trim();
+                
+                fieldSpec.Values[enumAttr] = cleanDescription;
+                
+                // Also add common variations for better matching
+                if (enumAttr.Length == 1 && char.IsDigit(enumAttr[0]))
+                {
+                    // For single digit enum values, also store without leading zeros
+                    var intValue = int.Parse(enumAttr);
+                    fieldSpec.Values[intValue.ToString()] = cleanDescription;
+                }
             }
+        }
+        
+        // Debug: Log fields with many values for verification
+        if (fieldSpec.Values.Count > 5)
+        {
+            Console.WriteLine($"Field {fieldSpec.Tag} ({fieldSpec.Name}) has {fieldSpec.Values.Count} possible values");
         }
     }
     

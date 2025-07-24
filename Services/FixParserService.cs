@@ -30,7 +30,12 @@ public class FixParserService
             // Step 2: Load specification for this version
             var spec = await FixSpecificationLoader.LoadSpecificationAsync(fixVersion);
             
-            // Step 3: Parse message using specification
+            // Step 3: Debug - show what values are available in spec (optional)
+            #if DEBUG
+            SpecificationInspector.LogFieldsWithValues(spec);
+            #endif
+            
+            // Step 4: Parse message using specification
             result.Fields = await ParseWithSpecificationAsync(rawMessage, spec);
             
             // Add version info as first field for display
@@ -39,7 +44,8 @@ public class FixParserService
                 TagNumber = "VERSION",
                 FieldName = "Detected Version",
                 Value = FixVersionDetector.GetDisplayName(fixVersion),
-                Description = $"Auto-detected FIX version: {fixVersion}",
+                ParsedValue = $"Using {spec.Fields.Count} field definitions",
+                Description = $"Auto-detected FIX version: {fixVersion}\nLoaded {spec.Fields.Count} field definitions from specification\nFields with enum values: {spec.Fields.Values.Count(f => f.Values.Any())}",
                 IndentLevel = 0
             });
         }
@@ -195,13 +201,24 @@ public class FixParserService
     
     private string GetParsedValue(int tag, string value, FixFieldSpec? fieldSpec)
     {
-        // First, try to get from specification values
+        // FIRST PRIORITY: Try to get from downloaded specification
         if (fieldSpec?.Values.TryGetValue(value, out var specValue) == true)
         {
             return specValue;
         }
         
-        // Fall back to hardcoded common field interpretations
+        // SECOND PRIORITY: Try to get from specification using case-insensitive lookup
+        if (fieldSpec?.Values != null)
+        {
+            var caseInsensitiveMatch = fieldSpec.Values
+                .FirstOrDefault(kvp => string.Equals(kvp.Key, value, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(caseInsensitiveMatch.Key))
+            {
+                return caseInsensitiveMatch.Value;
+            }
+        }
+        
+        // THIRD PRIORITY: Fall back to hardcoded interpretations for common fields
         var parsedValue = GetSpecialValueMeaning(tag, value);
         
         // If it's the same as the original value, return empty to avoid duplication
