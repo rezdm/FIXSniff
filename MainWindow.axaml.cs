@@ -1,8 +1,11 @@
+using System;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using FIXSniff.ViewModels;
 using FIXSniff.Models;
+// ReSharper disable InvertIf
 
 namespace FIXSniff;
 
@@ -28,9 +31,13 @@ public partial class MainWindow : Window {
 
     // Handle DataGrid selection in code-behind since Avalonia's DataGrid binding can be tricky
     private void DataGrid_SelectionChanged(object? sender, SelectionChangedEventArgs e) {
-        if (sender is DataGrid dataGrid && dataGrid.SelectedItem is FixFieldInfo selectedField) {
-            if (DataContext is MainWindowViewModel viewModel) {
-                viewModel.UpdateSelectedFieldDescription(selectedField.Description);
+        switch (sender) {
+            case DataGrid { SelectedItem: FixFieldInfo selectedField }: {
+                if (DataContext is MainWindowViewModel viewModel) {
+                    viewModel.UpdateSelectedFieldDescription(selectedField.Description);
+                }
+
+                break;
             }
         }
     }
@@ -45,16 +52,42 @@ public partial class MainWindow : Window {
         }
     }
 
+    // Paste button handler
+    private async void PasteButton_Click(object? sender, RoutedEventArgs e) {
+        try {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard != null) {
+                var text = await clipboard.GetTextAsync();
+                if (!string.IsNullOrEmpty(text)) {
+                    // Ensure we're on the UI thread and update both ways
+                    await Dispatcher.UIThread.InvokeAsync(() => {
+                        if (DataContext is MainWindowViewModel viewModel) {
+                            viewModel.InputText = text;
+                        }
+                        
+                        // Direct TextBox update as backup
+                        var textBox = this.FindControl<TextBox>("InputTextBox");
+                        if (textBox != null) {
+                            textBox.Text = text;
+                        }
+                    });
+                }
+            }
+        } catch (Exception ex) {
+            System.Console.WriteLine($"Clipboard access failed: {ex.Message}");
+        }
+    }
+
     // Methods to switch themes programmatically
-    public void SetDarkTheme() {
+    private static void SetDarkTheme() {
         App.Current.RequestedThemeVariant = ThemeVariant.Dark;
     }
 
-    public void SetLightTheme() {
+    private static void SetLightTheme() {
         App.Current.RequestedThemeVariant = ThemeVariant.Light;
     }
 
-    public void SetSystemTheme() {
+    private static void SetSystemTheme() {
         App.Current.RequestedThemeVariant = ThemeVariant.Default;
     }
 }
