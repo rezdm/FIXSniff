@@ -9,18 +9,16 @@ using FIXSniff.Models;
 
 namespace FIXSniff.Services;
 
-public class FixSpecificationLoader
-{
-    private static readonly HttpClient _httpClient = new HttpClient();
-    private static readonly Dictionary<string, FixSpecification> _cachedSpecs = new();
+public static class FixSpecificationLoader {
+    private static readonly HttpClient HttpClient = new();
+    private static readonly Dictionary<string, FixSpecification> CachedSpecs = new();
     
     /// <summary>
     /// Loads FIX specification for a given version
     /// </summary>
-    public static async Task<FixSpecification> LoadSpecificationAsync(string fixVersion)
-    {
+    public static async Task<FixSpecification> LoadSpecificationAsync(string fixVersion) {
         // Return cached version if available
-        if (_cachedSpecs.TryGetValue(fixVersion, out var cached))
+        if (CachedSpecs.TryGetValue(fixVersion, out var cached))
             return cached;
         
         var specFileName = FixVersionDetector.GetSpecFileName(fixVersion);
@@ -28,43 +26,35 @@ public class FixSpecificationLoader
         
         FixSpecification spec;
         
-        try
-        {
+        try {
             // Try to download from QuickFIX repository
             spec = await DownloadAndParseSpecAsync(specFileName, fixVersion);
             
             // Save to cache file
             await SaveSpecToCacheAsync(spec, cacheFilePath);
-        }
-        catch (Exception)
-        {
-            try
-            {
+        } catch (Exception) {
+            try {
                 // Try to load from cache
                 spec = await LoadSpecFromCacheAsync(cacheFilePath, fixVersion);
-            }
-            catch
-            {
+            } catch {
                 // Create minimal fallback spec
                 spec = CreateFallbackSpec(fixVersion);
             }
         }
         
         // Cache in memory
-        _cachedSpecs[fixVersion] = spec;
+        CachedSpecs[fixVersion] = spec;
         return spec;
     }
     
-    private static async Task<FixSpecification> DownloadAndParseSpecAsync(string specFileName, string fixVersion)
-    {
+    private static async Task<FixSpecification> DownloadAndParseSpecAsync(string specFileName, string fixVersion) {
         var url = $"https://raw.githubusercontent.com/quickfix/quickfix/master/spec/{specFileName}";
-        var xmlContent = await _httpClient.GetStringAsync(url);
+        var xmlContent = await HttpClient.GetStringAsync(url);
         
         return ParseQuickFixXml(xmlContent, fixVersion);
     }
     
-    private static FixSpecification ParseQuickFixXml(string xmlContent, string fixVersion)
-    {
+    private static FixSpecification ParseQuickFixXml(string xmlContent, string fixVersion) {
         var spec = new FixSpecification { Version = fixVersion };
         var doc = new XmlDocument();
         doc.LoadXml(xmlContent);
@@ -78,13 +68,11 @@ public class FixSpecificationLoader
         return spec;
     }
     
-    private static void ParseFields(XmlDocument doc, FixSpecification spec)
-    {
+    private static void ParseFields(XmlDocument doc, FixSpecification spec) {
         var fieldNodes = doc.SelectNodes("//field");
         if (fieldNodes == null) return;
         
-        foreach (XmlNode fieldNode in fieldNodes)
-        {
+        foreach (XmlNode fieldNode in fieldNodes) {
             var numberAttr = fieldNode.Attributes?["number"]?.Value;
             var nameAttr = fieldNode.Attributes?["name"]?.Value;
             var typeAttr = fieldNode.Attributes?["type"]?.Value;
@@ -92,8 +80,7 @@ public class FixSpecificationLoader
             if (!int.TryParse(numberAttr, out var fieldNumber) || string.IsNullOrEmpty(nameAttr))
                 continue;
             
-            var fieldSpec = new FixFieldSpec
-            {
+            var fieldSpec = new FixFieldSpec {
                 Tag = fieldNumber,
                 Name = nameAttr,
                 Type = typeAttr ?? "STRING",
@@ -107,18 +94,15 @@ public class FixSpecificationLoader
         }
     }
     
-    private static void ParseFieldValues(XmlNode fieldNode, FixFieldSpec fieldSpec)
-    {
+    private static void ParseFieldValues(XmlNode fieldNode, FixFieldSpec fieldSpec) {
         var valueNodes = fieldNode.SelectNodes("value");
         if (valueNodes == null) return;
         
-        foreach (XmlNode valueNode in valueNodes)
-        {
+        foreach (XmlNode valueNode in valueNodes) {
             var enumAttr = valueNode.Attributes?["enum"]?.Value;
             var descAttr = valueNode.Attributes?["description"]?.Value;
             
-            if (!string.IsNullOrEmpty(enumAttr))
-            {
+            if (!string.IsNullOrEmpty(enumAttr)) {
                 // Clean up the description text
                 var cleanDescription = descAttr ?? enumAttr;
                 cleanDescription = cleanDescription.Replace("_", " ").Trim();
@@ -126,8 +110,7 @@ public class FixSpecificationLoader
                 fieldSpec.Values[enumAttr] = cleanDescription;
                 
                 // Also add common variations for better matching
-                if (enumAttr.Length == 1 && char.IsDigit(enumAttr[0]))
-                {
+                if (enumAttr.Length == 1 && char.IsDigit(enumAttr[0])) {
                     // For single digit enum values, also store without leading zeros
                     var intValue = int.Parse(enumAttr);
                     fieldSpec.Values[intValue.ToString()] = cleanDescription;
@@ -136,19 +119,16 @@ public class FixSpecificationLoader
         }
         
         // Debug: Log fields with many values for verification
-        if (fieldSpec.Values.Count > 5)
-        {
+        if (fieldSpec.Values.Count > 5) {
             Console.WriteLine($"Field {fieldSpec.Tag} ({fieldSpec.Name}) has {fieldSpec.Values.Count} possible values");
         }
     }
     
-    private static void ParseMessages(XmlDocument doc, FixSpecification spec)
-    {
+    private static void ParseMessages(XmlDocument doc, FixSpecification spec) {
         var messageNodes = doc.SelectNodes("//message");
         if (messageNodes == null) return;
         
-        foreach (XmlNode messageNode in messageNodes)
-        {
+        foreach (XmlNode messageNode in messageNodes) {
             var nameAttr = messageNode.Attributes?["name"]?.Value;
             var msgTypeAttr = messageNode.Attributes?["msgtype"]?.Value;
             var msgCatAttr = messageNode.Attributes?["msgcat"]?.Value;
@@ -156,8 +136,7 @@ public class FixSpecificationLoader
             if (string.IsNullOrEmpty(nameAttr) || string.IsNullOrEmpty(msgTypeAttr))
                 continue;
             
-            var messageSpec = new FixMessageSpec
-            {
+            var messageSpec = new FixMessageSpec {
                 MsgType = msgTypeAttr,
                 Name = nameAttr,
                 Category = msgCatAttr ?? "unknown",
@@ -171,13 +150,11 @@ public class FixSpecificationLoader
         }
     }
     
-    private static void ParseMessageFields(XmlNode messageNode, FixMessageSpec messageSpec)
-    {
+    private static void ParseMessageFields(XmlNode messageNode, FixMessageSpec messageSpec) {
         var fieldNodes = messageNode.SelectNodes(".//field");
         if (fieldNodes == null) return;
         
-        foreach (XmlNode fieldNode in fieldNodes)
-        {
+        foreach (XmlNode fieldNode in fieldNodes) {
             var nameAttr = fieldNode.Attributes?["name"]?.Value;
             var requiredAttr = fieldNode.Attributes?["required"]?.Value;
             
@@ -188,18 +165,15 @@ public class FixSpecificationLoader
         }
     }
     
-    private static string GetFieldDescription(XmlNode fieldNode, int fieldNumber)
-    {
+    private static string GetFieldDescription(XmlNode fieldNode, int fieldNumber) {
         // Try to get description from various sources
         var descNode = fieldNode.SelectSingleNode("description");
-        if (descNode != null && !string.IsNullOrEmpty(descNode.InnerText))
-        {
+        if (descNode != null && !string.IsNullOrEmpty(descNode.InnerText)) {
             return descNode.InnerText.Trim();
         }
         
         // Fallback descriptions for common fields
-        return fieldNumber switch
-        {
+        return fieldNumber switch {
             8 => "Identifies beginning of new message and protocol version. ALWAYS FIRST FIELD IN MESSAGE.",
             9 => "Message length, in bytes, forward to the CheckSum field. ALWAYS SECOND FIELD IN MESSAGE.",
             10 => "Three byte, simple checksum. ALWAYS LAST FIELD IN MESSAGE.",
@@ -212,10 +186,8 @@ public class FixSpecificationLoader
         };
     }
     
-    private static string GetMessageDescription(XmlNode messageNode, string msgType)
-    {
-        return msgType switch
-        {
+    private static string GetMessageDescription(XmlNode messageNode, string msgType) {
+        return msgType switch {
             "0" => "Heartbeat message",
             "1" => "Test Request message", 
             "2" => "Resend Request message",
@@ -232,15 +204,12 @@ public class FixSpecificationLoader
         };
     }
     
-    private static async Task SaveSpecToCacheAsync(FixSpecification spec, string filePath)
-    {
-        try
-        {
+    private static async Task SaveSpecToCacheAsync(FixSpecification spec, string filePath) {
+        try {
             // Simple CSV format for caching
             var lines = new List<string> { "Tag,Name,Type,Description,Values" };
             
-            foreach (var field in spec.Fields.Values.OrderBy(f => f.Tag))
-            {
+            foreach (var field in spec.Fields.Values.OrderBy(f => f.Tag)) {
                 var valuesStr = string.Join(";", field.Values.Select(kv => $"{kv.Key}={kv.Value}"));
                 var description = field.Description.Replace("\"", "\"\"").Replace("\n", " ").Replace("\r", "");
                 
@@ -248,28 +217,22 @@ public class FixSpecificationLoader
             }
             
             await File.WriteAllLinesAsync(filePath, lines);
-        }
-        catch
-        {
+        } catch {
             // Ignore cache save errors
         }
     }
     
-    private static async Task<FixSpecification> LoadSpecFromCacheAsync(string filePath, string fixVersion)
-    {
+    private static async Task<FixSpecification> LoadSpecFromCacheAsync(string filePath, string fixVersion) {
         if (!File.Exists(filePath))
             throw new FileNotFoundException("Cache file not found");
         
         var spec = new FixSpecification { Version = fixVersion };
         var lines = await File.ReadAllLinesAsync(filePath);
         
-        for (int i = 1; i < lines.Length; i++) // Skip header
-        {
+        for (var i = 1; i < lines.Length; i++) { // Skip header
             var parts = SplitCsvLine(lines[i]);
-            if (parts.Length >= 4 && int.TryParse(parts[0], out var tag))
-            {
-                var fieldSpec = new FixFieldSpec
-                {
+            if (parts.Length >= 4 && int.TryParse(parts[0], out var tag)) {
+                var fieldSpec = new FixFieldSpec {
                     Tag = tag,
                     Name = parts[1],
                     Type = parts[2],
@@ -277,11 +240,9 @@ public class FixSpecificationLoader
                 };
                 
                 // Parse values if present
-                if (parts.Length > 4 && !string.IsNullOrEmpty(parts[4]))
-                {
+                if (parts.Length > 4 && !string.IsNullOrEmpty(parts[4])) {
                     var valuePairs = parts[4].Split(';', StringSplitOptions.RemoveEmptyEntries);
-                    foreach (var pair in valuePairs)
-                    {
+                    foreach (var pair in valuePairs) {
                         var equalIndex = pair.IndexOf('=');
                         if (equalIndex > 0)
                         {
@@ -299,36 +260,30 @@ public class FixSpecificationLoader
         return spec;
     }
     
-    private static string[] SplitCsvLine(string line)
-    {
+    private static string[] SplitCsvLine(string line) {
         var result = new List<string>();
         var inQuotes = false;
         var currentField = "";
         
-        for (int i = 0; i < line.Length; i++)
+        for (var i = 0; i < line.Length; i++)
         {
             var c = line[i];
-            
-            if (c == '"')
-            {
-                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
-                {
+
+            switch (c) {
+                case '"' when inQuotes && i + 1 < line.Length && line[i + 1] == '"':
                     currentField += '"';
                     i++; // Skip next quote
-                }
-                else
-                {
+                    break;
+                case '"':
                     inQuotes = !inQuotes;
-                }
-            }
-            else if (c == ',' && !inQuotes)
-            {
-                result.Add(currentField);
-                currentField = "";
-            }
-            else
-            {
-                currentField += c;
+                    break;
+                case ',' when !inQuotes:
+                    result.Add(currentField);
+                    currentField = "";
+                    break;
+                default:
+                    currentField += c;
+                    break;
             }
         }
         
@@ -336,13 +291,11 @@ public class FixSpecificationLoader
         return result.ToArray();
     }
     
-    private static FixSpecification CreateFallbackSpec(string fixVersion)
-    {
+    private static FixSpecification CreateFallbackSpec(string fixVersion) {
         // Create minimal spec with essential fields
         var spec = new FixSpecification { Version = fixVersion };
         
-        var essentialFields = new Dictionary<int, (string Name, string Type, string Description)>
-        {
+        var essentialFields = new Dictionary<int, (string Name, string Type, string Description)> {
             { 8, ("BeginString", "STRING", "Identifies beginning of new message and protocol version") },
             { 9, ("BodyLength", "LENGTH", "Message length, in bytes, forward to the CheckSum field") },
             { 10, ("CheckSum", "STRING", "Three byte, simple checksum") },
@@ -353,10 +306,8 @@ public class FixSpecificationLoader
             { 52, ("SendingTime", "UTCTIMESTAMP", "Time of message transmission") }
         };
         
-        foreach (var kvp in essentialFields)
-        {
-            spec.Fields[kvp.Key] = new FixFieldSpec
-            {
+        foreach (var kvp in essentialFields) {
+            spec.Fields[kvp.Key] = new FixFieldSpec {
                 Tag = kvp.Key,
                 Name = kvp.Value.Name,
                 Type = kvp.Value.Type,

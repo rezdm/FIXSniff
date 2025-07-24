@@ -7,19 +7,14 @@ using QuickFix;
 
 namespace FIXSniff.Services;
 
-public class FixParserService
-{
-    public async Task<ParsedFixMessage> ParseMessageAsync(string rawMessage)
-    {
-        var result = new ParsedFixMessage
-        {
+public class FixParserService {
+    public async Task<ParsedFixMessage> ParseMessageAsync(string rawMessage) {
+        var result = new ParsedFixMessage {
             RawMessage = rawMessage
         };
 
-        try
-        {
-            if (string.IsNullOrWhiteSpace(rawMessage))
-            {
+        try {
+            if (string.IsNullOrWhiteSpace(rawMessage)) {
                 result.ErrorMessage = "Message is empty";
                 return result;
             }
@@ -39,8 +34,7 @@ public class FixParserService
             result.Fields = await ParseWithSpecificationAsync(rawMessage, spec);
             
             // Add version info as first field for display
-            result.Fields.Insert(0, new FixFieldInfo
-            {
+            result.Fields.Insert(0, new FixFieldInfo {
                 TagNumber = "VERSION",
                 FieldName = "Detected Version",
                 Value = FixVersionDetector.GetDisplayName(fixVersion),
@@ -48,39 +42,32 @@ public class FixParserService
                 Description = $"Auto-detected FIX version: {fixVersion}\nLoaded {spec.Fields.Count} field definitions from specification\nFields with enum values: {spec.Fields.Values.Count(f => f.Values.Any())}",
                 IndentLevel = 0
             });
-        }
-        catch (Exception ex)
-        {
+        } catch (Exception ex) {
             result.ErrorMessage = $"Parsing failed: {ex.Message}";
         }
 
         return result;
     }
     
-    private async Task<List<FixFieldInfo>> ParseWithSpecificationAsync(string rawMessage, FixSpecification spec)
-    {
-        var fields = new List<FixFieldInfo>();
+    private async Task<List<FixFieldInfo>> ParseWithSpecificationAsync(string rawMessage, FixSpecification spec) {
+        List<FixFieldInfo> fields;
         
-        try
-        {
+        try {
             // Try QuickFIXn parsing first
             var normalizedMessage = NormalizeFixMessage(rawMessage);
             var message = new Message();
             message.FromString(normalizedMessage, true, null, null, null);
             
             fields = ExtractFieldsWithSpec(message, spec, 0);
-        }
-        catch
-        {
+        } catch {
             // Fall back to manual parsing
             fields = ParseManuallyWithSpec(rawMessage, spec);
         }
         
-        return fields.OrderBy(f => GetSortOrder(f.TagNumber)).ToList();
+        return await Task.Run(() => { return fields.OrderBy(f => GetSortOrder(f.TagNumber)).ToList(); });
     }
     
-    private List<FixFieldInfo> ExtractFieldsWithSpec(Message message, FixSpecification spec, int indentLevel)
-    {
+    private List<FixFieldInfo> ExtractFieldsWithSpec(Message message, FixSpecification spec, int indentLevel) {
         var fields = new List<FixFieldInfo>();
         var processedTags = new HashSet<int>();
         
@@ -88,25 +75,18 @@ public class FixParserService
         var allTags = new List<int>();
         
         // Check common field ranges
-        for (int tag = 1; tag <= 2000; tag++)
-        {
-            try
-            {
-                if (message.Header.IsSetField(tag) || message.IsSetField(tag) || message.Trailer.IsSetField(tag))
-                {
+        for (int tag = 1; tag <= 2000; tag++) {
+            try {
+                if (message.Header.IsSetField(tag) || message.IsSetField(tag) || message.Trailer.IsSetField(tag)) {
                     allTags.Add(tag);
                 }
-            }
-            catch
-            {
+            } catch {
                 // Skip fields that can't be checked
             }
         }
         
-        foreach (var tag in allTags.Where(t => !processedTags.Contains(t)))
-        {
-            try
-            {
+        foreach (var tag in allTags.Where(t => !processedTags.Contains(t))) {
+            try {
                 string value = "";
                 
                 // Try to get value from different message sections
@@ -117,15 +97,12 @@ public class FixParserService
                 else if (message.Trailer.IsSetField(tag))
                     value = message.Trailer.GetString(tag);
                 
-                if (!string.IsNullOrEmpty(value))
-                {
+                if (!string.IsNullOrEmpty(value)) {
                     var fieldInfo = CreateFieldInfo(tag, value, spec, indentLevel);
                     fields.Add(fieldInfo);
                     processedTags.Add(tag);
                 }
-            }
-            catch
-            {
+            } catch {
                 // Skip problematic fields
             }
         }
@@ -133,87 +110,72 @@ public class FixParserService
         return fields;
     }
     
-    private List<FixFieldInfo> ParseManuallyWithSpec(string rawMessage, FixSpecification spec)
-    {
+    private List<FixFieldInfo> ParseManuallyWithSpec(string rawMessage, FixSpecification spec) {
         var fields = new List<FixFieldInfo>();
         
         // Handle different SOH representations
-        string[] separators = { "\u0001", "|", "^A" };
+        string[] separators = ["\u0001", "|", "^A"];
         string[]? pairs = null;
         
-        foreach (var separator in separators)
-        {
-            pairs = rawMessage.Split(new[] { separator }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var separator in separators) {
+            pairs = rawMessage.Split([separator], StringSplitOptions.RemoveEmptyEntries);
             if (pairs.Length > 1) break;
         }
         
-        if (pairs == null || pairs.Length <= 1)
-        {
-            pairs = rawMessage.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (pairs == null || pairs.Length <= 1) {
+            pairs = rawMessage.Split([' '], StringSplitOptions.RemoveEmptyEntries);
         }
 
-        foreach (var pair in pairs)
-        {
+        foreach (var pair in pairs) {
             if (string.IsNullOrWhiteSpace(pair)) continue;
             
             var equalIndex = pair.IndexOf('=');
-            if (equalIndex > 0 && equalIndex < pair.Length - 1)
-            {
+            if (equalIndex > 0 && equalIndex < pair.Length - 1) {
                 var tagStr = pair.Substring(0, equalIndex);
                 var value = pair.Substring(equalIndex + 1);
                 
-                if (int.TryParse(tagStr, out var tag))
-                {
+                if (int.TryParse(tagStr, out var tag)) {
                     var fieldInfo = CreateFieldInfo(tag, value, spec, 0);
                     fields.Add(fieldInfo);
                 }
             }
         }
 
-        if (fields.Count == 0)
-        {
+        if (fields.Count == 0) {
             throw new InvalidOperationException("Could not parse any FIX fields from the message");
         }
 
         return fields;
     }
     
-    private FixFieldInfo CreateFieldInfo(int tag, string value, FixSpecification spec, int indentLevel)
-    {
+    private FixFieldInfo CreateFieldInfo(int tag, string value, FixSpecification spec, int indentLevel) {
         var fieldSpec = spec.Fields.GetValueOrDefault(tag);
         
-        var fieldInfo = new FixFieldInfo
-        {
+        var fieldInfo = new FixFieldInfo {
             TagNumber = tag.ToString(),
             FieldName = fieldSpec?.Name ?? $"Tag{tag}",
             Value = value,
-            IndentLevel = indentLevel
+            IndentLevel = indentLevel,
+            // Set parsed value (human-readable meaning)
+            ParsedValue = GetParsedValue(tag, value, fieldSpec),
+            // Create detailed description including field values
+            Description = CreateDetailedDescription(tag, value, fieldSpec)
         };
-        
-        // Set parsed value (human-readable meaning)
-        fieldInfo.ParsedValue = GetParsedValue(tag, value, fieldSpec);
-        
-        // Create detailed description including field values
-        fieldInfo.Description = CreateDetailedDescription(tag, value, fieldSpec);
-        
+
         return fieldInfo;
     }
     
-    private string GetParsedValue(int tag, string value, FixFieldSpec? fieldSpec)
-    {
+    private string GetParsedValue(int tag, string value, FixFieldSpec? fieldSpec) {
         // FIRST PRIORITY: Try to get from downloaded specification
-        if (fieldSpec?.Values.TryGetValue(value, out var specValue) == true)
-        {
+        if (fieldSpec?.Values.TryGetValue(value, out var specValue) == true) {
             return specValue;
         }
         
         // SECOND PRIORITY: Try to get from specification using case-insensitive lookup
-        if (fieldSpec?.Values != null)
-        {
+        if (fieldSpec?.Values != null) {
             var caseInsensitiveMatch = fieldSpec.Values
                 .FirstOrDefault(kvp => string.Equals(kvp.Key, value, StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrEmpty(caseInsensitiveMatch.Key))
-            {
+            if (!string.IsNullOrEmpty(caseInsensitiveMatch.Key)) {
                 return caseInsensitiveMatch.Value;
             }
         }
@@ -225,10 +187,8 @@ public class FixParserService
         return parsedValue == value ? string.Empty : parsedValue;
     }
     
-    private string CreateDetailedDescription(int tag, string value, FixFieldSpec? fieldSpec)
-    {
-        if (fieldSpec == null)
-        {
+    private string CreateDetailedDescription(int tag, string value, FixFieldSpec? fieldSpec) {
+        if (fieldSpec == null) {
             return $"Unknown field tag {tag}. Value: {value}";
         }
         
@@ -237,23 +197,18 @@ public class FixParserService
         description += $"Current Value: {value}\n\n";
         
         // Add field description
-        if (!string.IsNullOrEmpty(fieldSpec.Description))
-        {
+        if (!string.IsNullOrEmpty(fieldSpec.Description)) {
             description += $"Description: {fieldSpec.Description}\n\n";
         }
         
         // Add possible values if available
-        if (fieldSpec.Values.Any())
-        {
+        if (fieldSpec.Values.Count != 0) {
             description += "Possible Values:\n";
-            foreach (var kvp in fieldSpec.Values.OrderBy(x => x.Key))
-            {
+            foreach (var kvp in fieldSpec.Values.OrderBy(x => x.Key)) {
                 var marker = kvp.Key == value ? " ← CURRENT" : "";
                 description += $"  {kvp.Key} = {kvp.Value}{marker}\n";
             }
-        }
-        else if (!string.IsNullOrEmpty(value))
-        {
+        } else if (!string.IsNullOrEmpty(value)) {
             description += $"Current Value Meaning: ";
             description += GetSpecialValueMeaning(tag, value);
         }
@@ -261,11 +216,9 @@ public class FixParserService
         return description.Trim();
     }
     
-    private string GetSpecialValueMeaning(int tag, string value)
-    {
+    private string GetSpecialValueMeaning(int tag, string value) {
         // Handle special cases for common fields
-        return tag switch
-        {
+        return tag switch {
             22 => GetSecurityIDSourceDescription(value), // SecurityIDSource
             35 => GetMsgTypeDescription(value), // MsgType
             39 => GetOrdStatusDescription(value), // OrdStatus
@@ -288,10 +241,8 @@ public class FixParserService
         };
     }
     
-    private string GetSecurityIDSourceDescription(string source)
-    {
-        return source switch
-        {
+    private string GetSecurityIDSourceDescription(string source) {
+        return source switch {
             "1" => "CUSIP",
             "2" => "SEDOL", 
             "3" => "QUIK",
@@ -315,10 +266,8 @@ public class FixParserService
         };
     }
     
-    private string GetSettlTypeDescription(string settlType)
-    {
-        return settlType switch
-        {
+    private string GetSettlTypeDescription(string settlType) {
+        return settlType switch {
             "0" => "REGULAR",
             "1" => "CASH",
             "2" => "NEXT_DAY",
@@ -333,10 +282,8 @@ public class FixParserService
         };
     }
     
-    private string GetAllocTransTypeDescription(string allocTransType)
-    {
-        return allocTransType switch
-        {
+    private string GetAllocTransTypeDescription(string allocTransType) {
+        return allocTransType switch {
             "0" => "NEW",
             "1" => "REPLACE",
             "2" => "CANCEL",
@@ -347,10 +294,8 @@ public class FixParserService
         };
     }
     
-    private string GetEncryptMethodDescription(string encryptMethod)
-    {
-        return encryptMethod switch
-        {
+    private string GetEncryptMethodDescription(string encryptMethod) {
+        return encryptMethod switch {
             "0" => "NONE_OTHER",
             "1" => "PKCS_DES",
             "2" => "PKCS_1_DES",
@@ -359,10 +304,8 @@ public class FixParserService
         };
     }
     
-    private string GetCxlRejReasonDescription(string reason)
-    {
-        return reason switch
-        {
+    private string GetCxlRejReasonDescription(string reason) {
+        return reason switch {
             "0" => "TOO_LATE_TO_CANCEL",
             "1" => "UNKNOWN_ORDER",
             "2" => "BROKER_CREDIT_EXCHANGE_OPTION",
@@ -374,10 +317,8 @@ public class FixParserService
         };
     }
     
-    private string GetOrdRejReasonDescription(string reason)
-    {
-        return reason switch
-        {
+    private string GetOrdRejReasonDescription(string reason) {
+        return reason switch {
             "0" => "BROKER_CREDIT_EXCHANGE_OPTION",
             "1" => "UNKNOWN_SYMBOL",
             "2" => "EXCHANGE_CLOSED",
@@ -398,10 +339,8 @@ public class FixParserService
         };
     }
     
-    private string GetSecurityTypeDescription(string securityType)
-    {
-        return securityType switch
-        {
+    private string GetSecurityTypeDescription(string securityType) {
+        return securityType switch {
             "FUT" => "FUTURE",
             "OPT" => "OPTION",
             "EUSUPRA" => "EURO_SUPRANATIONAL_COUPONS",
@@ -424,20 +363,16 @@ public class FixParserService
         };
     }
     
-    private string GetPutOrCallDescription(string putOrCall)
-    {
-        return putOrCall switch
-        {
+    private string GetPutOrCallDescription(string putOrCall) {
+        return putOrCall switch {
             "0" => "PUT",
             "1" => "CALL",
             _ => putOrCall
         };
     }
     
-    private string GetMDEntryTypeDescription(string entryType)
-    {
-        return entryType switch
-        {
+    private string GetMDEntryTypeDescription(string entryType) {
+        return entryType switch {
             "0" => "BID",
             "1" => "OFFER",
             "2" => "TRADE",
@@ -455,10 +390,8 @@ public class FixParserService
         };
     }
     
-    private string GetSessionRejectReasonDescription(string reason)
-    {
-        return reason switch
-        {
+    private string GetSessionRejectReasonDescription(string reason) {
+        return reason switch {
             "0" => "INVALID_TAG_NUMBER",
             "1" => "REQUIRED_TAG_MISSING",
             "2" => "TAG_NOT_DEFINED_FOR_THIS_MESSAGE_TYPE",
@@ -475,10 +408,8 @@ public class FixParserService
         };
     }
     
-    private string GetPartyIDSourceDescription(string source)
-    {
-        return source switch
-        {
+    private string GetPartyIDSourceDescription(string source) {
+        return source switch {
             "1" => "KOREAN_INVESTOR_ID",
             "2" => "TAIWANESE_QUALIFIED_FOREIGN_INVESTOR_ID_QFII_FID",
             "3" => "TAIWANESE_TRADING_ACCT",
@@ -500,13 +431,11 @@ public class FixParserService
         };
     }
     
-    private string GetCFICodeDescription(string cfiCode)
-    {
+    private string GetCFICodeDescription(string cfiCode) {
         if (string.IsNullOrEmpty(cfiCode) || cfiCode.Length < 1)
             return cfiCode;
             
-        var category = cfiCode[0] switch
-        {
+        var category = cfiCode[0] switch {
             'E' => "EQUITIES",
             'D' => "DEBT_INSTRUMENTS", 
             'R' => "ENTITLEMENTS_RIGHTS",
@@ -527,10 +456,8 @@ public class FixParserService
         return $"{category} ({cfiCode})";
     }
     
-    private string GetMsgTypeDescription(string msgType)
-    {
-        return msgType switch
-        {
+    private string GetMsgTypeDescription(string msgType) {
+        return msgType switch {
             "0" => "Heartbeat",
             "1" => "Test Request",
             "2" => "Resend Request", 
@@ -547,10 +474,8 @@ public class FixParserService
         };
     }
     
-    private string GetOrdStatusDescription(string status)
-    {
-        return status switch
-        {
+    private string GetOrdStatusDescription(string status) {
+        return status switch {
             "0" => "New",
             "1" => "Partially filled",
             "2" => "Filled",
@@ -570,10 +495,8 @@ public class FixParserService
         };
     }
     
-    private string GetSideDescription(string side)
-    {
-        return side switch
-        {
+    private string GetSideDescription(string side) {
+        return side switch {
             "1" => "Buy",
             "2" => "Sell",
             "3" => "Buy minus",
@@ -594,10 +517,8 @@ public class FixParserService
         };
     }
     
-    private string GetOrdTypeDescription(string ordType)
-    {
-        return ordType switch
-        {
+    private string GetOrdTypeDescription(string ordType) {
+        return ordType switch {
             "1" => "Market",
             "2" => "Limit", 
             "3" => "Stop / Stop Loss",
@@ -625,10 +546,8 @@ public class FixParserService
         };
     }
     
-    private string GetTimeInForceDescription(string tif)
-    {
-        return tif switch
-        {
+    private string GetTimeInForceDescription(string tif) {
+        return tif switch {
             "0" => "Day",
             "1" => "Good Till Cancel",
             "2" => "At the Opening",
@@ -643,10 +562,8 @@ public class FixParserService
         };
     }
     
-    private string GetExecTypeDescription(string execType)
-    {
-        return execType switch
-        {
+    private string GetExecTypeDescription(string execType) {
+        return execType switch {
             "0" => "New",
             "3" => "Done for day",
             "4" => "Canceled",
@@ -671,8 +588,7 @@ public class FixParserService
         };
     }
     
-    private string NormalizeFixMessage(string rawMessage)
-    {
+    private string NormalizeFixMessage(string rawMessage) {
         var normalized = rawMessage;
         
         if (normalized.Contains('|'))
@@ -684,17 +600,14 @@ public class FixParserService
         return normalized;
     }
     
-    private int GetSortOrder(string tagNumber)
-    {
+    private int GetSortOrder(string tagNumber) {
         // Special handling for version info
         if (tagNumber == "VERSION")
             return -1;
             
-        if (int.TryParse(tagNumber, out var tag))
-        {
+        if (int.TryParse(tagNumber, out var tag)) {
             // Standard FIX field ordering: Header fields first, then body, then trailer
-            return tag switch
-            {
+            return tag switch {
                 8 => 1,   // BeginString
                 9 => 2,   // BodyLength  
                 35 => 3,  // MsgType
