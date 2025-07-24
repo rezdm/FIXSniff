@@ -4,7 +4,7 @@
         xmlns:models="using:FIXSniff.Models"
         x:Class="FIXSniff.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Icon="/Assets/avalonia-logo.ico"
+        Icon="/Assets/fix-sniff-logo.ico"
         Title="FIXSniff - FIX Message Parser"
         Width="900"
         Height="1080">
