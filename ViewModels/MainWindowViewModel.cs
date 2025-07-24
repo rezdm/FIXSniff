@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using System.Threading.Tasks;
 using FIXSniff.Models;
 using FIXSniff.Services;
 
@@ -51,7 +52,7 @@ public class MainWindowViewModel : INotifyPropertyChanged
     public ICommand ParseCommand { get; }
     public ObservableCollection<ParsedTabViewModel> ParsedTabs { get; }
 
-    private void ParseMessages()
+    private async void ParseMessages()
     {
         try
         {
@@ -68,7 +69,8 @@ public class MainWindowViewModel : INotifyPropertyChanged
                 var line = lines[i].Trim();
                 if (string.IsNullOrEmpty(line)) continue;
 
-                var parsedMessage = _parserService.ParseMessage(line);
+                // Parse with version detection and spec download
+                var parsedMessage = await _parserService.ParseMessageAsync(line);
                 var tabViewModel = new ParsedTabViewModel($"Message {i + 1}", parsedMessage, this);
                 ParsedTabs.Add(tabViewModel);
             }
