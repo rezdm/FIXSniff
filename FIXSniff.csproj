@@ -7,6 +7,7 @@
     <!-- Enable multiplatform support -->
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <UseAppHost>true</UseAppHost>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
   <!-- Windows-specific settings -->
@@ -27,4 +28,8 @@
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <AvaloniaVersion>11.0.10</AvaloniaVersion>
+  </PropertyGroup>
 </Project>
