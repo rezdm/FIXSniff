@@ -184,10 +184,28 @@ public class FixParserService
             IndentLevel = indentLevel
         };
         
+        // Set parsed value (human-readable meaning)
+        fieldInfo.ParsedValue = GetParsedValue(tag, value, fieldSpec);
+        
         // Create detailed description including field values
         fieldInfo.Description = CreateDetailedDescription(tag, value, fieldSpec);
         
         return fieldInfo;
+    }
+    
+    private string GetParsedValue(int tag, string value, FixFieldSpec? fieldSpec)
+    {
+        // First, try to get from specification values
+        if (fieldSpec?.Values.TryGetValue(value, out var specValue) == true)
+        {
+            return specValue;
+        }
+        
+        // Fall back to hardcoded common field interpretations
+        var parsedValue = GetSpecialValueMeaning(tag, value);
+        
+        // If it's the same as the original value, return empty to avoid duplication
+        return parsedValue == value ? string.Empty : parsedValue;
     }
     
     private string CreateDetailedDescription(int tag, string value, FixFieldSpec? fieldSpec)
@@ -231,14 +249,265 @@ public class FixParserService
         // Handle special cases for common fields
         return tag switch
         {
+            22 => GetSecurityIDSourceDescription(value), // SecurityIDSource
             35 => GetMsgTypeDescription(value), // MsgType
             39 => GetOrdStatusDescription(value), // OrdStatus
-            54 => GetSideDescription(value), // Side
             40 => GetOrdTypeDescription(value), // OrdType
+            54 => GetSideDescription(value), // Side
             59 => GetTimeInForceDescription(value), // TimeInForce
+            63 => GetSettlTypeDescription(value), // SettlType
+            71 => GetAllocTransTypeDescription(value), // AllocTransType
+            98 => GetEncryptMethodDescription(value), // EncryptMethod
+            102 => GetCxlRejReasonDescription(value), // CxlRejReason
+            103 => GetOrdRejReasonDescription(value), // OrdRejReason
             150 => GetExecTypeDescription(value), // ExecType
+            167 => GetSecurityTypeDescription(value), // SecurityType
+            201 => GetPutOrCallDescription(value), // PutOrCall
+            269 => GetMDEntryTypeDescription(value), // MDEntryType
+            373 => GetSessionRejectReasonDescription(value), // SessionRejectReason
+            447 => GetPartyIDSourceDescription(value), // PartyIDSource
+            461 => GetCFICodeDescription(value), // CFICode
             _ => value // Default: just return the value
         };
+    }
+    
+    private string GetSecurityIDSourceDescription(string source)
+    {
+        return source switch
+        {
+            "1" => "CUSIP",
+            "2" => "SEDOL", 
+            "3" => "QUIK",
+            "4" => "ISIN_NUMBER",
+            "5" => "RIC_CODE",
+            "6" => "ISO_CURRENCY_CODE",
+            "7" => "ISO_COUNTRY_CODE",
+            "8" => "EXCHANGE_SYMBOL",
+            "9" => "CONSOLIDATED_TAPE_ASSOCIATION",
+            "A" => "BLOOMBERG_SYMBOL",
+            "B" => "WERTPAPIER",
+            "C" => "DUTCH",
+            "D" => "VALOREN",
+            "E" => "SICOVAM",
+            "F" => "BELGIAN",
+            "G" => "COMMON",
+            "H" => "CLEARING_HOUSE",
+            "I" => "ISDA_FPML_PRODUCT_SPECIFICATION",
+            "J" => "OPTIONS_PRICE_REPORTING_AUTHORITY",
+            _ => source
+        };
+    }
+    
+    private string GetSettlTypeDescription(string settlType)
+    {
+        return settlType switch
+        {
+            "0" => "REGULAR",
+            "1" => "CASH",
+            "2" => "NEXT_DAY",
+            "3" => "T_PLUS_2", 
+            "4" => "T_PLUS_3",
+            "5" => "T_PLUS_4",
+            "6" => "FUTURE",
+            "7" => "WHEN_AND_IF_ISSUED",
+            "8" => "SELLERS_OPTION",
+            "9" => "T_PLUS_5",
+            _ => settlType
+        };
+    }
+    
+    private string GetAllocTransTypeDescription(string allocTransType)
+    {
+        return allocTransType switch
+        {
+            "0" => "NEW",
+            "1" => "REPLACE",
+            "2" => "CANCEL",
+            "3" => "PRELIMINARY",
+            "4" => "CALCULATED",
+            "5" => "CALCULATED_WITHOUT_PRELIMINARY",
+            _ => allocTransType
+        };
+    }
+    
+    private string GetEncryptMethodDescription(string encryptMethod)
+    {
+        return encryptMethod switch
+        {
+            "0" => "NONE_OTHER",
+            "1" => "PKCS_DES",
+            "2" => "PKCS_1_DES",
+            "3" => "PGP_DES_MD5",
+            _ => encryptMethod
+        };
+    }
+    
+    private string GetCxlRejReasonDescription(string reason)
+    {
+        return reason switch
+        {
+            "0" => "TOO_LATE_TO_CANCEL",
+            "1" => "UNKNOWN_ORDER",
+            "2" => "BROKER_CREDIT_EXCHANGE_OPTION",
+            "3" => "ORDER_ALREADY_IN_PENDING_CANCEL_OR_PENDING_REPLACE_STATUS",
+            "4" => "UNABLE_TO_PROCESS_ORDER_MASS_CANCEL_REQUEST",
+            "5" => "ORIGORDMODTIME_DID_NOT_MATCH_LAST_TRANSACTTIME_OF_ORDER",
+            "6" => "DUPLICATE_CLORDID_RECEIVED",
+            _ => reason
+        };
+    }
+    
+    private string GetOrdRejReasonDescription(string reason)
+    {
+        return reason switch
+        {
+            "0" => "BROKER_CREDIT_EXCHANGE_OPTION",
+            "1" => "UNKNOWN_SYMBOL",
+            "2" => "EXCHANGE_CLOSED",
+            "3" => "ORDER_EXCEEDS_LIMIT",
+            "4" => "TOO_LATE_TO_ENTER",
+            "5" => "UNKNOWN_ORDER",
+            "6" => "DUPLICATE_ORDER",
+            "7" => "DUPLICATE_OF_A_VERBALLY_COMMUNICATED_ORDER",
+            "8" => "STALE_ORDER",
+            "9" => "TRADE_ALONG_REQUIRED",
+            "10" => "INVALID_INVESTOR_ID",
+            "11" => "UNSUPPORTED_ORDER_CHARACTERISTIC",
+            "12" => "SURVEILLANCE_OPTION",
+            "13" => "INCORRECT_QUANTITY",
+            "14" => "INCORRECT_ALLOCATED_QUANTITY",
+            "15" => "UNKNOWN_ACCOUNT",
+            _ => reason
+        };
+    }
+    
+    private string GetSecurityTypeDescription(string securityType)
+    {
+        return securityType switch
+        {
+            "FUT" => "FUTURE",
+            "OPT" => "OPTION",
+            "EUSUPRA" => "EURO_SUPRANATIONAL_COUPONS",
+            "FAC" => "FEDERAL_AGENCY_COUPON",
+            "FADN" => "FEDERAL_AGENCY_DISCOUNT_NOTE",
+            "PEF" => "PRIVATE_EXPORT_FUNDING",
+            "SUPRA" => "USD_SUPRANATIONAL_COUPONS",
+            "CORP" => "CORPORATE_BOND",
+            "CPP" => "CORPORATE_PRIVATE_PLACEMENT",
+            "CB" => "CONVERTIBLE_BOND",
+            "DUAL" => "DUAL_CURRENCY",
+            "EUCORP" => "EURO_CORPORATE_BOND",
+            "XLINKD" => "INDEXED_LINKED",
+            "STRUCT" => "STRUCTURED_NOTES",
+            "YANK" => "YANKEE_CORPORATE_BOND",
+            "FOR" => "FOREIGN_EXCHANGE_CONTRACT",
+            "CS" => "COMMON_STOCK",
+            "PS" => "PREFERRED_STOCK",
+            _ => securityType
+        };
+    }
+    
+    private string GetPutOrCallDescription(string putOrCall)
+    {
+        return putOrCall switch
+        {
+            "0" => "PUT",
+            "1" => "CALL",
+            _ => putOrCall
+        };
+    }
+    
+    private string GetMDEntryTypeDescription(string entryType)
+    {
+        return entryType switch
+        {
+            "0" => "BID",
+            "1" => "OFFER",
+            "2" => "TRADE",
+            "3" => "INDEX_VALUE",
+            "4" => "OPENING_PRICE",
+            "5" => "CLOSING_PRICE",
+            "6" => "SETTLEMENT_PRICE",
+            "7" => "TRADING_SESSION_HIGH_PRICE",
+            "8" => "TRADING_SESSION_LOW_PRICE",
+            "9" => "TRADING_SESSION_VWAP_PRICE",
+            "A" => "IMBALANCE",
+            "B" => "TRADE_VOLUME",
+            "C" => "OPEN_INTEREST",
+            _ => entryType
+        };
+    }
+    
+    private string GetSessionRejectReasonDescription(string reason)
+    {
+        return reason switch
+        {
+            "0" => "INVALID_TAG_NUMBER",
+            "1" => "REQUIRED_TAG_MISSING",
+            "2" => "TAG_NOT_DEFINED_FOR_THIS_MESSAGE_TYPE",
+            "3" => "UNDEFINED_TAG",
+            "4" => "TAG_SPECIFIED_WITHOUT_A_VALUE",
+            "5" => "VALUE_IS_INCORRECT",
+            "6" => "INCORRECT_DATA_FORMAT_FOR_VALUE",
+            "7" => "DECRYPTION_PROBLEM",
+            "8" => "SIGNATURE_PROBLEM",
+            "9" => "COMPID_PROBLEM",
+            "10" => "SENDINGTIME_ACCURACY_PROBLEM",
+            "11" => "INVALID_MSGTYPE",
+            _ => reason
+        };
+    }
+    
+    private string GetPartyIDSourceDescription(string source)
+    {
+        return source switch
+        {
+            "1" => "KOREAN_INVESTOR_ID",
+            "2" => "TAIWANESE_QUALIFIED_FOREIGN_INVESTOR_ID_QFII_FID",
+            "3" => "TAIWANESE_TRADING_ACCT",
+            "4" => "MALAYSIAN_CENTRAL_DEPOSITORY",
+            "5" => "CHINESE_INVESTOR_ID",
+            "6" => "UK_NATIONAL_INSURANCE_OR_PENSION_NUMBER",
+            "7" => "US_SOCIAL_SECURITY_NUMBER",
+            "8" => "US_EMPLOYER_OR_TAX_ID_NUMBER",
+            "9" => "AUSTRALIAN_BUSINESS_NUMBER",
+            "A" => "AUSTRALIAN_TAX_FILE_NUMBER",
+            "B" => "BIC_BANK_IDENTIFICATION_CODE",
+            "C" => "GENERALLY_ACCEPTED_MARKET_PARTICIPANT_IDENTIFIER",
+            "D" => "PROPRIETARY_CUSTOM_CODE",
+            "E" => "ISO_COUNTRY_CODE",
+            "F" => "SETTLEMENT_ENTITY_LOCATION",
+            "G" => "MIC_MARKET_IDENTIFIER_CODE",
+            "H" => "CSD_PARTICIPANT_MEMBER_CODE",
+            _ => source
+        };
+    }
+    
+    private string GetCFICodeDescription(string cfiCode)
+    {
+        if (string.IsNullOrEmpty(cfiCode) || cfiCode.Length < 1)
+            return cfiCode;
+            
+        var category = cfiCode[0] switch
+        {
+            'E' => "EQUITIES",
+            'D' => "DEBT_INSTRUMENTS", 
+            'R' => "ENTITLEMENTS_RIGHTS",
+            'O' => "OPTIONS",
+            'F' => "FUTURES",
+            'S' => "SWAPS",
+            'H' => "NON_LISTED_AND_COMPLEX_LISTED_OPTIONS",
+            'I' => "SPOT",
+            'J' => "FORWARDS",
+            'K' => "STRATEGIES",
+            'L' => "FINANCING",
+            'M' => "NON_LISTED_DERIVATIVES",
+            'T' => "REFERENTIAL_INSTRUMENTS",
+            'C' => "COMMODITIES",
+            _ => "OTHERS"
+        };
+        
+        return $"{category} ({cfiCode})";
     }
     
     private string GetMsgTypeDescription(string msgType)

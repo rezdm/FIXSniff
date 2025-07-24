@@ -101,8 +101,12 @@
                                                     Width="200"/>
                                 <DataGridTextColumn Header="Value" 
                                                     Binding="{Binding Value}" 
-                                                    Width="*"
+                                                    Width="150"
                                                     FontFamily="Consolas,Monaco,monospace"/>
+                                <DataGridTextColumn Header="Parsed Value" 
+                                                    Binding="{Binding ParsedValue}" 
+                                                    Width="*"
+                                                    FontWeight="SemiBold"/>
                             </DataGrid.Columns>
                         </DataGrid>
 
