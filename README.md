@@ -1,7 +1,7 @@
 # FIXSniff
 Parse FIX messages and display them in human-readable form
 
-I need a tool to display contents of FIX messages in human-readable form. About 20 years ago, while working in DeutscheBank, we had something Java-based for such purpose. 
+I need a tool to display contents of FIX messages in human-readable form. About 20 years ago, we had something Java-based for such purpose. 
 Trying to find it now -- no luck. Easier to quickly develop something.
 
 ```
