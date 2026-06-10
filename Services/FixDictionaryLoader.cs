@@ -1,10 +1,8 @@
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Xml;
-using System.Linq;
 using FIXSniff.Models;
 
 namespace FIXSniff.Services;
@@ -12,166 +10,198 @@ namespace FIXSniff.Services;
 public static class FixSpecificationLoader {
     private static readonly HttpClient HttpClient = new();
     private static readonly Dictionary<string, FixSpecification> CachedSpecs = new();
-    
+
     /// <summary>
-    /// Loads FIX specification for a given version
+    /// Loads FIX specification for a given version: memory cache, then on-disk cache,
+    /// then download from the QuickFIX repository, then a minimal built-in fallback.
     /// </summary>
     public static async Task<FixSpecification> LoadSpecificationAsync(string fixVersion) {
-        // Return cached version if available
         if (CachedSpecs.TryGetValue(fixVersion, out var cached))
             return cached;
-        
+
         var specFileName = FixVersionDetector.GetSpecFileName(fixVersion);
-        var cacheFilePath = Path.Combine(Path.GetTempPath(), $"fix_spec_{specFileName}.cache");
-        
-        FixSpecification spec;
-        
-        try {
-            // Try to download from QuickFIX repository
-            spec = await DownloadAndParseSpecAsync(specFileName, fixVersion);
-            
-            // Save to cache file
-            await SaveSpecToCacheAsync(spec, cacheFilePath);
-        } catch (Exception) {
-            try {
-                // Try to load from cache
-                spec = await LoadSpecFromCacheAsync(cacheFilePath, fixVersion);
-            } catch {
-                // Create minimal fallback spec
-                spec = CreateFallbackSpec(fixVersion);
-            }
-        }
-        
-        // Cache in memory
+        var cacheFilePath = Path.Combine(Path.GetTempPath(), $"fixsniff_{specFileName}");
+
+        var spec = await LoadFromCacheFileAsync(cacheFilePath, fixVersion)
+                   ?? await DownloadSpecAsync(specFileName, cacheFilePath, fixVersion)
+                   ?? CreateFallbackSpec(fixVersion);
+
         CachedSpecs[fixVersion] = spec;
         return spec;
     }
-    
-    private static async Task<FixSpecification> DownloadAndParseSpecAsync(string specFileName, string fixVersion) {
-        var url = $"https://raw.githubusercontent.com/quickfix/quickfix/master/spec/{specFileName}";
-        var xmlContent = await HttpClient.GetStringAsync(url);
-        
-        return ParseQuickFixXml(xmlContent, fixVersion);
+
+    private static async Task<FixSpecification?> LoadFromCacheFileAsync(string cacheFilePath, string fixVersion) {
+        try {
+            if (!File.Exists(cacheFilePath))
+                return null;
+            return ParseQuickFixXml(await File.ReadAllTextAsync(cacheFilePath), fixVersion);
+        } catch {
+            return null;
+        }
     }
-    
+
+    private static async Task<FixSpecification?> DownloadSpecAsync(string specFileName, string cacheFilePath, string fixVersion) {
+        try {
+            var url = $"https://raw.githubusercontent.com/quickfix/quickfix/master/spec/{specFileName}";
+            var xmlContent = await HttpClient.GetStringAsync(url);
+            var spec = ParseQuickFixXml(xmlContent, fixVersion);
+
+            try {
+                await File.WriteAllTextAsync(cacheFilePath, xmlContent);
+            } catch {
+                // Ignore cache save errors
+            }
+
+            return spec;
+        } catch {
+            return null;
+        }
+    }
+
     private static FixSpecification ParseQuickFixXml(string xmlContent, string fixVersion) {
         var spec = new FixSpecification { Version = fixVersion };
         var doc = new XmlDocument();
         doc.LoadXml(xmlContent);
-        
-        // Parse fields
+
         ParseFields(doc, spec);
-        
-        // Parse messages
         ParseMessages(doc, spec);
-        
+        ParseGroups(doc, spec);
+
         return spec;
     }
-    
+
     private static void ParseFields(XmlDocument doc, FixSpecification spec) {
-        var fieldNodes = doc.SelectNodes("//field");
+        var fieldNodes = doc.SelectNodes("/fix/fields/field");
         if (fieldNodes == null) return;
-        
+
         foreach (XmlNode fieldNode in fieldNodes) {
             var numberAttr = fieldNode.Attributes?["number"]?.Value;
             var nameAttr = fieldNode.Attributes?["name"]?.Value;
             var typeAttr = fieldNode.Attributes?["type"]?.Value;
-            
+
             if (!int.TryParse(numberAttr, out var fieldNumber) || string.IsNullOrEmpty(nameAttr))
                 continue;
-            
+
             var fieldSpec = new FixFieldSpec {
                 Tag = fieldNumber,
                 Name = nameAttr,
                 Type = typeAttr ?? "STRING",
                 Description = GetFieldDescription(fieldNode, fieldNumber)
             };
-            
-            // Parse field values/enums
+
             ParseFieldValues(fieldNode, fieldSpec);
-            
+
             spec.Fields[fieldNumber] = fieldSpec;
         }
     }
-    
+
     private static void ParseFieldValues(XmlNode fieldNode, FixFieldSpec fieldSpec) {
         var valueNodes = fieldNode.SelectNodes("value");
         if (valueNodes == null) return;
-        
+
         foreach (XmlNode valueNode in valueNodes) {
             var enumAttr = valueNode.Attributes?["enum"]?.Value;
             var descAttr = valueNode.Attributes?["description"]?.Value;
-            
+
             if (!string.IsNullOrEmpty(enumAttr)) {
-                // Clean up the description text
-                var cleanDescription = descAttr ?? enumAttr;
-                cleanDescription = cleanDescription.Replace("_", " ").Trim();
-                
+                var cleanDescription = (descAttr ?? enumAttr).Replace("_", " ").Trim();
                 fieldSpec.Values[enumAttr] = cleanDescription;
-                
-                // Also add common variations for better matching
-                if (enumAttr.Length == 1 && char.IsDigit(enumAttr[0])) {
-                    // For single digit enum values, also store without leading zeros
-                    var intValue = int.Parse(enumAttr);
-                    fieldSpec.Values[intValue.ToString()] = cleanDescription;
-                }
             }
         }
-        
-        // Debug: Log fields with many values for verification
-        if (fieldSpec.Values.Count > 5) {
-            Console.WriteLine($"Field {fieldSpec.Tag} ({fieldSpec.Name}) has {fieldSpec.Values.Count} possible values");
-        }
     }
-    
+
     private static void ParseMessages(XmlDocument doc, FixSpecification spec) {
-        var messageNodes = doc.SelectNodes("//message");
+        var messageNodes = doc.SelectNodes("/fix/messages/message");
         if (messageNodes == null) return;
-        
+
         foreach (XmlNode messageNode in messageNodes) {
             var nameAttr = messageNode.Attributes?["name"]?.Value;
             var msgTypeAttr = messageNode.Attributes?["msgtype"]?.Value;
             var msgCatAttr = messageNode.Attributes?["msgcat"]?.Value;
-            
+
             if (string.IsNullOrEmpty(nameAttr) || string.IsNullOrEmpty(msgTypeAttr))
                 continue;
-            
-            var messageSpec = new FixMessageSpec {
+
+            spec.Messages[msgTypeAttr] = new FixMessageSpec {
                 MsgType = msgTypeAttr,
                 Name = nameAttr,
-                Category = msgCatAttr ?? "unknown",
-                Description = GetMessageDescription(messageNode, msgTypeAttr)
+                Category = msgCatAttr ?? "unknown"
             };
-            
-            // Parse required and optional fields for this message
-            ParseMessageFields(messageNode, messageSpec);
-            
-            spec.Messages[msgTypeAttr] = messageSpec;
         }
     }
-    
-    private static void ParseMessageFields(XmlNode messageNode, FixMessageSpec messageSpec) {
-        var fieldNodes = messageNode.SelectNodes(".//field");
-        if (fieldNodes == null) return;
-        
-        foreach (XmlNode fieldNode in fieldNodes) {
-            var nameAttr = fieldNode.Attributes?["name"]?.Value;
-            var requiredAttr = fieldNode.Attributes?["required"]?.Value;
-            
-            if (string.IsNullOrEmpty(nameAttr)) continue;
-            
-            // We need to look up the field number by name (reverse lookup)
-            // For now, we'll skip this detailed parsing and focus on the field definitions
+
+    /// <summary>
+    /// Builds repeating-group definitions from every &lt;group&gt; element in the spec
+    /// (header, messages and components), keyed by the counter field's tag.
+    /// </summary>
+    private static void ParseGroups(XmlDocument doc, FixSpecification spec) {
+        var nameToTag = new Dictionary<string, int>();
+        foreach (var field in spec.Fields.Values) {
+            nameToTag[field.Name] = field.Tag;
+        }
+
+        var components = new Dictionary<string, XmlNode>();
+        var componentNodes = doc.SelectNodes("/fix/components/component");
+        if (componentNodes != null) {
+            foreach (XmlNode componentNode in componentNodes) {
+                var name = componentNode.Attributes?["name"]?.Value;
+                if (!string.IsNullOrEmpty(name))
+                    components[name] = componentNode;
+            }
+        }
+
+        var groupNodes = doc.SelectNodes("//group");
+        if (groupNodes == null) return;
+
+        foreach (XmlNode groupNode in groupNodes) {
+            var name = groupNode.Attributes?["name"]?.Value;
+            if (string.IsNullOrEmpty(name) || !nameToTag.TryGetValue(name, out var counterTag))
+                continue;
+
+            var members = new List<int>();
+            CollectGroupMembers(groupNode, components, nameToTag, members, []);
+            if (members.Count == 0) continue;
+
+            // The same group can appear in several messages with different members; merge them
+            if (spec.Groups.TryGetValue(counterTag, out var existing)) {
+                existing.MemberTags.UnionWith(members);
+            } else {
+                var groupSpec = new FixGroupSpec {
+                    CounterTag = counterTag,
+                    DelimiterTag = members[0]
+                };
+                groupSpec.MemberTags.UnionWith(members);
+                spec.Groups[counterTag] = groupSpec;
+            }
         }
     }
-    
+
+    private static void CollectGroupMembers(XmlNode node, Dictionary<string, XmlNode> components, Dictionary<string, int> nameToTag, List<int> members, HashSet<string> visitedComponents) {
+        foreach (XmlNode child in node.ChildNodes) {
+            var name = child.Attributes?["name"]?.Value;
+            if (string.IsNullOrEmpty(name)) continue;
+
+            switch (child.Name) {
+                case "field":
+                // A nested group contributes its counter tag; its members are covered by its own definition
+                case "group":
+                    if (nameToTag.TryGetValue(name, out var tag))
+                        members.Add(tag);
+                    break;
+                case "component":
+                    if (visitedComponents.Add(name) && components.TryGetValue(name, out var componentNode))
+                        CollectGroupMembers(componentNode, components, nameToTag, members, visitedComponents);
+                    break;
+            }
+        }
+    }
+
     private static string GetFieldDescription(XmlNode fieldNode, int fieldNumber) {
-        // Try to get description from various sources
         var descNode = fieldNode.SelectSingleNode("description");
         if (descNode != null && !string.IsNullOrEmpty(descNode.InnerText)) {
             return descNode.InnerText.Trim();
         }
-        
+
         // Fallback descriptions for common fields
         return fieldNumber switch {
             8 => "Identifies beginning of new message and protocol version. ALWAYS FIRST FIELD IN MESSAGE.",
@@ -185,136 +215,51 @@ public static class FixSpecificationLoader {
             _ => $"FIX field {fieldNumber}"
         };
     }
-    
-    private static string GetMessageDescription(XmlNode messageNode, string msgType) {
-        return msgType switch {
-            "0" => "Heartbeat message",
-            "1" => "Test Request message", 
-            "2" => "Resend Request message",
-            "3" => "Reject message",
-            "4" => "Sequence Reset message",
-            "5" => "Logout message",
-            "A" => "Logon message",
-            "D" => "New Order - Single",
-            "8" => "Execution Report",
-            "9" => "Order Cancel Reject",
-            "F" => "Order Cancel Request",
-            "G" => "Order Cancel/Replace Request",
-            _ => $"FIX message type {msgType}"
-        };
-    }
-    
-    private static async Task SaveSpecToCacheAsync(FixSpecification spec, string filePath) {
-        try {
-            // Simple CSV format for caching
-            var lines = new List<string> { "Tag,Name,Type,Description,Values" };
-            
-            foreach (var field in spec.Fields.Values.OrderBy(f => f.Tag)) {
-                var valuesStr = string.Join(";", field.Values.Select(kv => $"{kv.Key}={kv.Value}"));
-                var description = field.Description.Replace("\"", "\"\"").Replace("\n", " ").Replace("\r", "");
-                
-                lines.Add($"{field.Tag},\"{field.Name}\",\"{field.Type}\",\"{description}\",\"{valuesStr}\"");
-            }
-            
-            await File.WriteAllLinesAsync(filePath, lines);
-        } catch {
-            // Ignore cache save errors
-        }
-    }
-    
-    private static async Task<FixSpecification> LoadSpecFromCacheAsync(string filePath, string fixVersion) {
-        if (!File.Exists(filePath))
-            throw new FileNotFoundException("Cache file not found");
-        
-        var spec = new FixSpecification { Version = fixVersion };
-        var lines = await File.ReadAllLinesAsync(filePath);
-        
-        for (var i = 1; i < lines.Length; i++) { // Skip header
-            var parts = SplitCsvLine(lines[i]);
-            if (parts.Length >= 4 && int.TryParse(parts[0], out var tag)) {
-                var fieldSpec = new FixFieldSpec {
-                    Tag = tag,
-                    Name = parts[1],
-                    Type = parts[2],
-                    Description = parts[3]
-                };
-                
-                // Parse values if present
-                if (parts.Length > 4 && !string.IsNullOrEmpty(parts[4])) {
-                    var valuePairs = parts[4].Split(';', StringSplitOptions.RemoveEmptyEntries);
-                    foreach (var pair in valuePairs) {
-                        var equalIndex = pair.IndexOf('=');
-                        if (equalIndex > 0)
-                        {
-                            var key = pair.Substring(0, equalIndex);
-                            var value = pair.Substring(equalIndex + 1);
-                            fieldSpec.Values[key] = value;
-                        }
-                    }
-                }
-                
-                spec.Fields[tag] = fieldSpec;
-            }
-        }
-        
-        return spec;
-    }
-    
-    private static string[] SplitCsvLine(string line) {
-        var result = new List<string>();
-        var inQuotes = false;
-        var currentField = "";
-        
-        for (var i = 0; i < line.Length; i++)
-        {
-            var c = line[i];
 
-            switch (c) {
-                case '"' when inQuotes && i + 1 < line.Length && line[i + 1] == '"':
-                    currentField += '"';
-                    i++; // Skip next quote
-                    break;
-                case '"':
-                    inQuotes = !inQuotes;
-                    break;
-                case ',' when !inQuotes:
-                    result.Add(currentField);
-                    currentField = "";
-                    break;
-                default:
-                    currentField += c;
-                    break;
-            }
-        }
-        
-        result.Add(currentField);
-        return result.ToArray();
-    }
-    
     private static FixSpecification CreateFallbackSpec(string fixVersion) {
-        // Create minimal spec with essential fields
+        // Minimal spec used when the full dictionary can neither be downloaded nor loaded from cache
         var spec = new FixSpecification { Version = fixVersion };
-        
-        var essentialFields = new Dictionary<int, (string Name, string Type, string Description)> {
-            { 8, ("BeginString", "STRING", "Identifies beginning of new message and protocol version") },
-            { 9, ("BodyLength", "LENGTH", "Message length, in bytes, forward to the CheckSum field") },
-            { 10, ("CheckSum", "STRING", "Three byte, simple checksum") },
-            { 35, ("MsgType", "STRING", "Defines message type") },
-            { 49, ("SenderCompID", "STRING", "Assigned value used to identify firm sending message") },
-            { 56, ("TargetCompID", "STRING", "Assigned value used to identify receiving firm") },
-            { 34, ("MsgSeqNum", "SEQNUM", "Integer message sequence number") },
-            { 52, ("SendingTime", "UTCTIMESTAMP", "Time of message transmission") }
+
+        var essentialFields = new (int Tag, string Name, string Type, string Description)[] {
+            (8, "BeginString", "STRING", "Identifies beginning of new message and protocol version"),
+            (9, "BodyLength", "LENGTH", "Message length, in bytes, forward to the CheckSum field"),
+            (10, "CheckSum", "STRING", "Three byte, simple checksum"),
+            (11, "ClOrdID", "STRING", "Unique identifier for order as assigned by the institution"),
+            (34, "MsgSeqNum", "SEQNUM", "Integer message sequence number"),
+            (35, "MsgType", "STRING", "Defines message type"),
+            (38, "OrderQty", "QTY", "Quantity ordered"),
+            (40, "OrdType", "CHAR", "Order type"),
+            (44, "Price", "PRICE", "Price per unit of quantity"),
+            (49, "SenderCompID", "STRING", "Assigned value used to identify firm sending message"),
+            (52, "SendingTime", "UTCTIMESTAMP", "Time of message transmission"),
+            (54, "Side", "CHAR", "Side of order"),
+            (55, "Symbol", "STRING", "Ticker symbol"),
+            (56, "TargetCompID", "STRING", "Assigned value used to identify receiving firm"),
+            (59, "TimeInForce", "CHAR", "Specifies how long the order remains in effect")
         };
-        
-        foreach (var kvp in essentialFields) {
-            spec.Fields[kvp.Key] = new FixFieldSpec {
-                Tag = kvp.Key,
-                Name = kvp.Value.Name,
-                Type = kvp.Value.Type,
-                Description = kvp.Value.Description
+
+        foreach (var (tag, name, type, description) in essentialFields) {
+            spec.Fields[tag] = new FixFieldSpec {
+                Tag = tag,
+                Name = name,
+                Type = type,
+                Description = description
             };
         }
-        
+
+        AddValues(spec, 35, ("0", "Heartbeat"), ("1", "Test Request"), ("2", "Resend Request"), ("3", "Reject"),
+            ("4", "Sequence Reset"), ("5", "Logout"), ("8", "Execution Report"), ("9", "Order Cancel Reject"),
+            ("A", "Logon"), ("D", "New Order Single"), ("F", "Order Cancel Request"), ("G", "Order Cancel Replace Request"));
+        AddValues(spec, 40, ("1", "Market"), ("2", "Limit"), ("3", "Stop"), ("4", "Stop Limit"));
+        AddValues(spec, 54, ("1", "Buy"), ("2", "Sell"), ("5", "Sell Short"));
+        AddValues(spec, 59, ("0", "Day"), ("1", "Good Till Cancel"), ("3", "Immediate Or Cancel"), ("4", "Fill Or Kill"));
+
         return spec;
+    }
+
+    private static void AddValues(FixSpecification spec, int tag, params (string Value, string Description)[] values) {
+        foreach (var (value, description) in values) {
+            spec.Fields[tag].Values[value] = description;
+        }
     }
 }

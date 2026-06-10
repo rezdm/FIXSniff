@@ -26,7 +26,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged {
             if (_inputText != value) {
                 _inputText = value;
                 OnPropertyChanged();
-                OnPropertyChanged(nameof(InputText)); // Explicit notification
                 ((RelayCommand)ParseCommand).RaiseCanExecuteChanged();
             }
         }
@@ -61,7 +60,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged {
 
                 // Parse with version detection and spec download
                 var parsedMessage = await _parserService.ParseMessageAsync(line);
-                var tabViewModel = new ParsedTabViewModel($"Message {i + 1}", parsedMessage, this);
+                var tabViewModel = new ParsedTabViewModel($"Message {i + 1}", parsedMessage);
                 ParsedTabs.Add(tabViewModel);
             }
         } catch (Exception ex) {
@@ -70,7 +69,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged {
                 RawMessage = InputText,
                 ErrorMessage = $"Parsing failed: {ex.Message}"
             };
-            var errorTab = new ParsedTabViewModel("Error", errorMessage, this);
+            var errorTab = new ParsedTabViewModel("Error", errorMessage);
             ParsedTabs.Add(errorTab);
         }
     }
@@ -90,20 +89,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged {
     }
 }
 
-public sealed class ParsedTabViewModel(string header, ParsedFixMessage parsedMessage, MainWindowViewModel mainViewModel) : INotifyPropertyChanged {
+public sealed class ParsedTabViewModel(string header, ParsedFixMessage parsedMessage) {
     public string TabHeader { get; } = header;
     public ParsedFixMessage ParsedMessage { get; } = parsedMessage;
     public ObservableCollection<FixFieldInfo> Fields { get; } = new(parsedMessage.Fields);
-
-    public void OnFieldSelected(FixFieldInfo? field) {
-        mainViewModel.UpdateSelectedFieldDescription(field != null ? field.Description : string.Empty);
-    }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
 }
 
 // Simple command implementation without ReactiveUI

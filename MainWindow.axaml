@@ -30,7 +30,7 @@
                              TextWrapping="Wrap"
                              FontFamily="Consolas,Monaco,monospace"
                              FontSize="12"
-                             Watermark="8=FIX.4.4|9=178|35=D|49=SENDER|56=TARGET|34=1|52=20230101-10:30:00|11=ORDER123|21=1|55=MSFT|54=1|38=100|40=2|44=150.50|59=0|10=123"/>
+                             PlaceholderText="8=FIX.4.4|9=178|35=D|49=SENDER|56=TARGET|34=1|52=20230101-10:30:00|11=ORDER123|21=1|55=MSFT|54=1|38=100|40=2|44=150.50|59=0|10=123"/>
                 </Grid>
                 
                 <!-- Right side - TWO BUTTONS STACKED VERTICALLY -->
@@ -55,10 +55,9 @@
         </Border>
 
         <!-- Tabs Area -->
-        <TabControl Grid.Row="1" 
+        <TabControl Grid.Row="1"
                     ItemsSource="{Binding ParsedTabs}"
-                    Margin="10,0,10,5"
-                    Background="White">
+                    Margin="10,0,10,5">
             <TabControl.ItemTemplate>
                 <DataTemplate DataType="vm:ParsedTabViewModel">
                     <TextBlock Text="{Binding TabHeader}" Padding="8,4"/>
@@ -82,11 +81,10 @@
                                            TextWrapping="Wrap" 
                                            Foreground="#D32F2F"/>
                                 <TextBlock Text="Raw message:" FontWeight="Bold" Margin="0,10,0,5"/>
-                                <TextBox Text="{Binding ParsedMessage.RawMessage}" 
+                                <TextBox Text="{Binding ParsedMessage.RawMessage}"
                                          IsReadOnly="True"
                                          FontFamily="Consolas,Monaco,monospace"
-                                         FontSize="11"
-                                         Background="#FAFAFA"/>
+                                         FontSize="11"/>
                             </StackPanel>
                         </Border>
 
@@ -136,10 +134,10 @@
                             </DataGrid.Styles>
                         </DataGrid>
 
-                        <GridSplitter Grid.Row="1" 
-                                      Height="5" 
-                                      HorizontalAlignment="Stretch" 
-                                      Background="#E0E0E0"/>
+                        <GridSplitter Grid.Row="1"
+                                      Height="5"
+                                      HorizontalAlignment="Stretch"
+                                      Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"/>
                     </Grid>
                 </DataTemplate>
             </TabControl.ContentTemplate>
@@ -152,13 +150,13 @@
             </TabControl.Styles>
         </TabControl>
 
-        <GridSplitter Grid.Row="2" 
-                      Height="5" 
-                      HorizontalAlignment="Stretch" 
-                      Background="#E0E0E0"/>
+        <GridSplitter Grid.Row="2"
+                      Height="5"
+                      HorizontalAlignment="Stretch"
+                      Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"/>
 
         <!-- Field Description -->
-        <Border Grid.Row="3" Background="#F9F9F9" Padding="10" Margin="10,5,10,10">
+        <Border Grid.Row="3" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" Padding="10" Margin="10,5,10,10">
             <Grid RowDefinitions="Auto,*">
                 <TextBlock Text="Field Description:" FontWeight="Bold" Margin="0,0,0,5"/>
                 <TextBox Grid.Row="1"
@@ -166,9 +164,8 @@
                          IsReadOnly="True"
                          TextWrapping="Wrap"
                          AcceptsReturn="True"
-                         Background="White"
                          FontSize="12"
-                         Watermark="Select a field from the grid above to see its description"/>
+                         PlaceholderText="Select a field from the grid above to see its description"/>
             </Grid>
         </Border>
     </Grid>

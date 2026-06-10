@@ -4,8 +4,9 @@ namespace FIXSniff.Models;
 
 public class FixSpecification {
     public string Version { get; set; } = string.Empty;
-    public Dictionary<int, FixFieldSpec> Fields { get; set; } = new();
-    public Dictionary<string, FixMessageSpec> Messages { get; set; } = new();
+    public Dictionary<int, FixFieldSpec> Fields { get; } = new();
+    public Dictionary<string, FixMessageSpec> Messages { get; } = new();
+    public Dictionary<int, FixGroupSpec> Groups { get; } = new(); // Counter tag -> group definition
 }
 
 public class FixFieldSpec {
@@ -13,25 +14,26 @@ public class FixFieldSpec {
     public string Name { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
-    public Dictionary<string, string> Values { get; set; } = new(); // Value -> Description
-    public bool IsRequired { get; set; }
-    public string? BaseCategory { get; set; } // Header, Body, Trailer
+    public Dictionary<string, string> Values { get; } = new(); // Value -> Description
 }
 
 public class FixMessageSpec {
     public string MsgType { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
-    public List<int> RequiredFields { get; set; } = [];
-    public List<int> OptionalFields { get; set; } = [];
+}
+
+public class FixGroupSpec {
+    public int CounterTag { get; set; }
+    public int DelimiterTag { get; set; } // First member field; marks the start of each entry
+    public HashSet<int> MemberTags { get; } = [];
 }
 
 public class FixVersionInfo {
     public string BeginString { get; set; } = string.Empty;
     public string SpecFileName { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
-    
+
     public static readonly Dictionary<string, FixVersionInfo> SupportedVersions = new() {
         { "FIX.4.0", new FixVersionInfo { BeginString = "FIX.4.0", SpecFileName = "FIX40.xml", DisplayName = "FIX 4.0" } },
         { "FIX.4.1", new FixVersionInfo { BeginString = "FIX.4.1", SpecFileName = "FIX41.xml", DisplayName = "FIX 4.1" } },
