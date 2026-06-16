@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -8,7 +9,9 @@ using FIXSniff.Models;
 namespace FIXSniff.Services;
 
 public static class FixSpecificationLoader {
-    private static readonly HttpClient HttpClient = new();
+    // Bounded timeout so a stalled download falls back to the built-in spec
+    // promptly instead of waiting HttpClient's 100-second default.
+    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
     private static readonly Dictionary<string, FixSpecification> CachedSpecs = new();
 
     /// <summary>
@@ -131,8 +134,10 @@ public static class FixSpecificationLoader {
     }
 
     /// <summary>
-    /// Builds repeating-group definitions from every &lt;group&gt; element in the spec
-    /// (header, messages and components), keyed by the counter field's tag.
+    /// Builds repeating-group definitions per message type. Each message's groups are
+    /// resolved from its own &lt;group&gt; elements (expanding &lt;component&gt; references and
+    /// nested groups) plus the groups in the shared header/trailer, so the same counter
+    /// tag can carry different members in different messages without bleeding across.
     /// </summary>
     private static void ParseGroups(XmlDocument doc, FixSpecification spec) {
         var nameToTag = new Dictionary<string, int>();
@@ -150,28 +155,59 @@ public static class FixSpecificationLoader {
             }
         }
 
-        var groupNodes = doc.SelectNodes("//group");
-        if (groupNodes == null) return;
+        // Header/trailer fields can appear in every message, so their groups are shared.
+        var commonGroups = new Dictionary<int, FixGroupSpec>();
+        foreach (var section in new[] { "/fix/header", "/fix/trailer" }) {
+            var sectionNode = doc.SelectSingleNode(section);
+            if (sectionNode != null)
+                RegisterGroups(sectionNode, components, nameToTag, commonGroups, []);
+        }
 
-        foreach (XmlNode groupNode in groupNodes) {
-            var name = groupNode.Attributes?["name"]?.Value;
-            if (string.IsNullOrEmpty(name) || !nameToTag.TryGetValue(name, out var counterTag))
+        var messageNodes = doc.SelectNodes("/fix/messages/message");
+        if (messageNodes == null) return;
+
+        foreach (XmlNode messageNode in messageNodes) {
+            var msgType = messageNode.Attributes?["msgtype"]?.Value;
+            if (string.IsNullOrEmpty(msgType))
                 continue;
 
-            var members = new List<int>();
-            CollectGroupMembers(groupNode, components, nameToTag, members, []);
-            if (members.Count == 0) continue;
+            var groups = new Dictionary<int, FixGroupSpec>(commonGroups);
+            RegisterGroups(messageNode, components, nameToTag, groups, []);
+            spec.MessageGroups[msgType] = groups;
+        }
+    }
 
-            // The same group can appear in several messages with different members; merge them
-            if (spec.Groups.TryGetValue(counterTag, out var existing)) {
-                existing.MemberTags.UnionWith(members);
-            } else {
-                var groupSpec = new FixGroupSpec {
-                    CounterTag = counterTag,
-                    DelimiterTag = members[0]
-                };
-                groupSpec.MemberTags.UnionWith(members);
-                spec.Groups[counterTag] = groupSpec;
+    /// <summary>
+    /// Walks a message/component/group subtree and registers a <see cref="FixGroupSpec"/> for
+    /// every repeating group reachable from it, recursing through component references and
+    /// nested groups. Members of each group come from <see cref="CollectGroupMembers"/>.
+    /// </summary>
+    private static void RegisterGroups(XmlNode container, Dictionary<string, XmlNode> components, Dictionary<string, int> nameToTag, Dictionary<int, FixGroupSpec> groups, HashSet<string> visitedComponents) {
+        foreach (XmlNode child in container.ChildNodes) {
+            var name = child.Attributes?["name"]?.Value;
+            if (string.IsNullOrEmpty(name)) continue;
+
+            switch (child.Name) {
+                case "group":
+                    if (nameToTag.TryGetValue(name, out var counterTag) && !groups.ContainsKey(counterTag)) {
+                        var members = new List<int>();
+                        CollectGroupMembers(child, components, nameToTag, members, []);
+                        if (members.Count != 0) {
+                            var groupSpec = new FixGroupSpec {
+                                CounterTag = counterTag,
+                                DelimiterTag = members[0]
+                            };
+                            groupSpec.MemberTags.UnionWith(members);
+                            groups[counterTag] = groupSpec;
+                        }
+                    }
+                    // Nested groups defined inside this group are their own definitions
+                    RegisterGroups(child, components, nameToTag, groups, visitedComponents);
+                    break;
+                case "component":
+                    if (visitedComponents.Add(name) && components.TryGetValue(name, out var componentNode))
+                        RegisterGroups(componentNode, components, nameToTag, groups, visitedComponents);
+                    break;
             }
         }
     }
