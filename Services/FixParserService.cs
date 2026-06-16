@@ -36,7 +36,7 @@ public class FixParserService {
                 FieldName = "Detected Version",
                 Value = FixVersionDetector.GetDisplayName(fixVersion),
                 ParsedValue = $"Using {spec.Fields.Count} field definitions",
-                Description = $"Auto-detected FIX version: {fixVersion}\nLoaded {spec.Fields.Count} field definitions from specification\nFields with enum values: {spec.Fields.Values.Count(f => f.Values.Count != 0)}\nRepeating groups: {spec.Groups.Count}",
+                Description = $"Auto-detected FIX version: {fixVersion}\nLoaded {spec.Fields.Count} field definitions from specification\nFields with enum values: {spec.Fields.Values.Count(f => f.Values.Count != 0)}\nRepeating groups: {spec.MessageGroups.Values.SelectMany(m => m.Keys).Distinct().Count()}",
                 IndentLevel = 0
             });
         } catch (Exception ex) {
@@ -79,28 +79,42 @@ public class FixParserService {
         return parsedPairs;
     }
 
+    private static readonly Dictionary<int, FixGroupSpec> EmptyGroups = new();
+
     private static List<FixFieldInfo> ProcessFields(List<(int Tag, string Value)> parsedPairs, FixSpecification spec) {
         var fields = new List<FixFieldInfo>();
+        var groups = ResolveGroups(parsedPairs, spec);
         var i = 0;
 
         while (i < parsedPairs.Count) {
-            ProcessField(parsedPairs, ref i, fields, spec, 0);
+            ProcessField(parsedPairs, ref i, fields, spec, groups, 0);
         }
 
         return fields;
     }
 
     /// <summary>
-    /// Processes the field at position i; if it is a repeating-group counter
-    /// (per the spec), its entries are parsed recursively with indentation.
+    /// Resolves the repeating-group definitions that apply to this message from its
+    /// MsgType (tag 35). Unknown message types parse flat (no group nesting).
     /// </summary>
-    private static void ProcessField(List<(int Tag, string Value)> parsedPairs, ref int i, List<FixFieldInfo> fields, FixSpecification spec, int indentLevel) {
+    private static IReadOnlyDictionary<int, FixGroupSpec> ResolveGroups(List<(int Tag, string Value)> parsedPairs, FixSpecification spec) {
+        var msgType = parsedPairs.FirstOrDefault(p => p.Tag == 35).Value;
+        return !string.IsNullOrEmpty(msgType) && spec.MessageGroups.TryGetValue(msgType, out var groups)
+            ? groups
+            : EmptyGroups;
+    }
+
+    /// <summary>
+    /// Processes the field at position i; if it is a repeating-group counter
+    /// (per the message's spec), its entries are parsed recursively with indentation.
+    /// </summary>
+    private static void ProcessField(List<(int Tag, string Value)> parsedPairs, ref int i, List<FixFieldInfo> fields, FixSpecification spec, IReadOnlyDictionary<int, FixGroupSpec> groups, int indentLevel) {
         var (tag, value) = parsedPairs[i];
         var field = CreateFieldInfo(tag, value, spec, indentLevel);
         fields.Add(field);
         i++;
 
-        if (!spec.Groups.TryGetValue(tag, out var group) || !int.TryParse(value, out var entryCount) || entryCount <= 0)
+        if (!groups.TryGetValue(tag, out var group) || !int.TryParse(value, out var entryCount) || entryCount <= 0)
             return;
 
         field.FieldName += $" (Repeating Group - {entryCount} entries)";
@@ -119,7 +133,7 @@ public class FixParserService {
                 if (!group.MemberTags.Contains(nextTag)) break; // End of group
                 if (nextTag == group.DelimiterTag && !isFirstFieldOfEntry) break; // Next entry
 
-                ProcessField(parsedPairs, ref i, fields, spec, indentLevel + 1);
+                ProcessField(parsedPairs, ref i, fields, spec, groups, indentLevel + 1);
                 isFirstFieldOfEntry = false;
             }
 

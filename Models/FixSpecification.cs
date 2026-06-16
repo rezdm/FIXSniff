@@ -6,7 +6,11 @@ public class FixSpecification {
     public string Version { get; set; } = string.Empty;
     public Dictionary<int, FixFieldSpec> Fields { get; } = new();
     public Dictionary<string, FixMessageSpec> Messages { get; } = new();
-    public Dictionary<int, FixGroupSpec> Groups { get; } = new(); // Counter tag -> group definition
+
+    // MsgType -> (counter tag -> group definition). Repeating groups are resolved
+    // per message so a field grouped in one message is not absorbed into a group
+    // in another that happens to share the same counter tag.
+    public Dictionary<string, Dictionary<int, FixGroupSpec>> MessageGroups { get; } = new();
 }
 
 public class FixFieldSpec {
