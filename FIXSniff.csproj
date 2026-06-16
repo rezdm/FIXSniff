@@ -27,4 +27,12 @@
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
+
+  <!-- Single-file publish should emit just the .exe: native libs are embedded via
+       IncludeNativeLibrariesForSelfExtract and their .pdb symbols aren't needed at runtime. -->
+  <Target Name="RemovePublishedPdbs" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
 </Project>
